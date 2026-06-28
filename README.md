@@ -37,6 +37,22 @@ Environment variables used so far:
 | -------------- | ------- | ------------------ |
 | `ET_HTTP_ADDR` | `:8080` | HTTP listen address |
 
+## Run API (PR05)
+
+```bash
+# With Docker (db + migrate + api). Set a real password in compose for non-local use.
+docker compose up --build
+
+# Or local binary against make db-up + migrate-up:
+export ET_DATABASE_URL='postgres://expense:expense@localhost:5432/expense_tracker?sslmode=disable'
+export ET_BOOTSTRAP_PASSWORD='changeme'
+export ET_COOKIE_SECURE=false
+export ET_CORS_ORIGINS=http://localhost:5173
+make run
+# Login: POST /api/v1/auth/login {"email":"admin@localhost","password":"changeme"}
+# OpenAPI: GET /api/openapi.yaml
+```
+
 ## Database (PR03)
 
 SQL migrations live in `migrations/` (golang-migrate). Optional local Postgres:

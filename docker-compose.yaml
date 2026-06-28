@@ -1,0 +1,51 @@
+# Profile A minimal: db + migrate + api (PR05). SPA via Vite separately until PR13.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: expense
+      POSTGRES_PASSWORD: expense
+      POSTGRES_DB: expense_tracker
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U expense -d expense_tracker"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - expense_pg_data:/var/lib/postgresql/data
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command:
+      [
+        "-path=/migrations",
+        "-database=postgres://expense:expense@db:5432/expense_tracker?sslmode=disable",
+        "up",
+      ]
+    restart: "no"
+
+  api:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    environment:
+      ET_HTTP_ADDR: ":8080"
+      ET_DATABASE_URL: postgres://expense:expense@db:5432/expense_tracker?sslmode=disable
+      ET_BOOTSTRAP_PASSWORD: changeme
+      ET_BOOTSTRAP_EMAIL: admin@localhost
+      ET_COOKIE_SECURE: "false"
+      ET_CORS_ORIGINS: http://localhost:5173
+    restart: unless-stopped
+
+volumes:
+  expense_pg_data:
