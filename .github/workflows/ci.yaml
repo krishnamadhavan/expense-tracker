@@ -80,5 +80,8 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Integration tests (postgres)
+        run: go test -tags=integration ./internal/adapters/postgres/ -count=1
+
       - name: Build
         run: go build -o /tmp/expense-tracker ./cmd/server
