@@ -1,0 +1,111 @@
+openapi: 3.1.0
+info:
+  title: Expense Tracker API
+  version: 0.1.0
+  description: API-first personal finance tracker (PR05).
+servers:
+  - url: /
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      responses:
+        "200":
+          description: OK
+  /readyz:
+    get:
+      summary: Readiness (DB ping)
+      responses:
+        "200":
+          description: Ready
+        "503":
+          description: DB unavailable
+  /api/v1/auth/login:
+    post:
+      summary: Login (session + CSRF cookies)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Logged in
+        "401":
+          description: Invalid credentials
+        "429":
+          description: Rate limited
+  /api/v1/auth/me:
+    get:
+      summary: Current principal
+      security: [{ sessionCookie: [] }, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+  /api/v1/accounts:
+    get:
+      summary: List payment accounts
+      security: [{ sessionCookie: [] }, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+  /api/v1/categories:
+    get:
+      summary: List categories
+      security: [{ sessionCookie: [] }, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+  /api/v1/income-streams:
+    get:
+      summary: List income streams
+      security: [{ sessionCookie: [] }, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+  /api/v1/transactions:
+    get:
+      summary: List transactions
+      security: [{ sessionCookie: [] }, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create transaction (Idempotency-Key supported)
+      security: [{ sessionCookie: [] }, { bearerAuth: [] }]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string }
+        - in: header
+          name: X-CSRF-Token
+          schema: { type: string }
+          description: Required for cookie session mutations
+      responses:
+        "201":
+          description: Created
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: et_session
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
