@@ -20,6 +20,7 @@ import (
 	"github.com/krishnamadhavan/expense-tracker/internal/app/categorization"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/reports"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/budgets"
+	appimports "github.com/krishnamadhavan/expense-tracker/internal/app/imports"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/auth"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/catalog"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/transactions"
@@ -98,6 +99,7 @@ func main() {
 		Cat: catSvc,
 		Reports: &reports.Service{Pool: pool},
 		Budgets: &budgets.Service{Pool: pool},
+		Imports: &appimports.Service{Pool: pool, Txns: txnSvc},
 		Idem:     idemRepo,
 		AuthMW:   authMW,
 		LoginRL:  middleware.NewLoginRateLimiter(cfg.LoginRateLimit, cfg.LoginRateWindow),
