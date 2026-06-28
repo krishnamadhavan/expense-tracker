@@ -13,6 +13,22 @@ jobs:
   build-test:
     name: Build & test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: expense
+          POSTGRES_PASSWORD: expense
+          POSTGRES_DB: expense_tracker
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U expense -d expense_tracker"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      ET_DATABASE_URL: postgres://expense:expense@localhost:5432/expense_tracker?sslmode=disable
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,7 +36,6 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          # Language version matches go.mod (go 1.24.0); setup-go resolves a compatible toolchain.
           go-version-file: go.mod
           cache: true
 
@@ -36,6 +51,28 @@ jobs:
 
       - name: Download modules
         run: go mod download
+
+      - name: Install golang-migrate
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
+
+      - name: Migrate up
+        run: ./scripts/migrate.sh up
+
+      - name: Verify seed categories
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          count=$(psql "$ET_DATABASE_URL" -Atc "SELECT COUNT(*) FROM categories WHERE household_id = '11111111-1111-4111-8111-111111111111'::uuid AND is_system")
+          test "$count" -ge 18
+          streams=$(psql "$ET_DATABASE_URL" -Atc "SELECT COUNT(*) FROM income_streams WHERE household_id = '11111111-1111-4111-8111-111111111111'::uuid")
+          test "$streams" -eq 4
+
+      - name: Migrate down (one step) then up again
+        run: |
+          set -euo pipefail
+          ./scripts/migrate.sh down 1
+          ./scripts/migrate.sh up
 
       - name: Vet
         run: go vet ./...

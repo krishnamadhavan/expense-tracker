@@ -37,6 +37,20 @@ Environment variables used so far:
 | -------------- | ------- | ------------------ |
 | `ET_HTTP_ADDR` | `:8080` | HTTP listen address |
 
+## Database (PR03)
+
+SQL migrations live in `migrations/` (golang-migrate). Optional local Postgres:
+
+```bash
+# requires Docker
+make db-up
+# install CLI once: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
+make migrate-up
+```
+
+Default URL: `postgres://expense:expense@localhost:5432/expense_tracker?sslmode=disable`  
+Seed household id: `11111111-1111-4111-8111-111111111111` (see `internal/db`).
+
 ## Module
 
 ```text
