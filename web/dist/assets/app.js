@@ -98,11 +98,27 @@ refreshAuth();
 
 // --- import ---
 async function setupImport() {
-  const fmts = (await api("/api/v1/imports/formats")).formats || [];
+  const data = await api("/api/v1/imports/formats");
+  const fmts = data.formats || [];
+  const catalog = data.catalog || [];
+  window.__importCatalog = catalog;
   const sel = $("imp-format");
+  sel.innerHTML = '<option value="auto">auto-detect</option>';
   fmts.forEach((f) => { const o = document.createElement("option"); o.value = f; o.textContent = f; sel.appendChild(o); });
   $("imp-account").innerHTML = accounts.map((a) => `<option value="${a.ID || a.id}">${a.Name || a.name}</option>`).join("");
   $("imp-stream").innerHTML = streams.map((s) => `<option value="${s.ID || s.id}">${s.Name || s.name} (income default)</option>`).join("");
+  const renderHelp = () => {
+    const id = $("imp-format").value === "auto" ? "generic_csv" : $("imp-format").value;
+    const f = (window.__importCatalog || []).find((c) => c.id === id) || (window.__importCatalog || [])[0];
+    $("imp-sample-link").href = "/api/v1/imports/sample/" + (f && f.id ? f.id : "generic_csv");
+    if (!f) { $("imp-help").textContent = ""; return; }
+    $("imp-help").innerHTML = "<strong>" + (f.title || f.id) + "</strong><br/>" + (f.description || "") +
+      "<br/><br/><strong>Required columns:</strong> " + (f.required_columns || []).join("; ") +
+      "<br/><strong>Optional:</strong> " + (f.optional_columns || []).join("; ") +
+      ((f.notes && f.notes.length) ? "<br/><strong>Notes:</strong> " + f.notes.join(" ") : "");
+  };
+  $("imp-format").onchange = renderHelp;
+  renderHelp();
 }
 const _refresh = refreshAuth;
 refreshAuth = async function() {

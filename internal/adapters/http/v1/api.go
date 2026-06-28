@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/http/middleware"
+	"github.com/krishnamadhavan/expense-tracker/internal/adapters/importers"
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/postgres"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/auth"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/catalog"
@@ -73,6 +74,8 @@ func (a *API) Routes(r chi.Router) {
 			r.Get("/budgets", a.listBudgets)
 			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/budgets", a.createBudget)
 			r.Get("/imports/formats", a.importFormats)
+			r.Get("/imports/sample", a.importSample)
+			r.Get("/imports/sample/{format}", a.importSample)
 			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/imports/preview", a.importPreview)
 			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/imports/commit", a.importCommit)
 		})
@@ -667,10 +670,39 @@ func (a *API) createBudget(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) importFormats(w http.ResponseWriter, r *http.Request) {
 	if a.Imports == nil {
-		middleware.WriteJSON(w, http.StatusOK, map[string]any{"formats": []string{}})
+		middleware.WriteJSON(w, http.StatusOK, map[string]any{"formats": []string{}, "catalog": []any{}})
 		return
 	}
-	middleware.WriteJSON(w, http.StatusOK, map[string]any{"formats": a.Imports.ListFormats()})
+	cat := importers.FormatCatalog()
+	// strip sample bodies from JSON (large); ids only in formats list
+	out := make([]map[string]any, 0, len(cat))
+	for _, f := range cat {
+		out = append(out, map[string]any{
+			"id": f.ID, "title": f.Title, "description": f.Description,
+			"required_columns": f.Required, "optional_columns": f.Optional, "notes": f.Notes,
+			"sample_url": "/api/v1/imports/sample/" + f.ID,
+		})
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{"formats": a.Imports.ListFormats(), "catalog": out})
+}
+
+func (a *API) importSample(w http.ResponseWriter, r *http.Request) {
+	format := chi.URLParam(r, "format")
+	if format == "" {
+		format = r.URL.Query().Get("format")
+	}
+	if format == "" {
+		format = "generic_csv"
+	}
+	name, body, ok := importers.SampleCSV(format)
+	if !ok {
+		middleware.WriteError(w, http.StatusNotFound, "not_found", "unknown format sample")
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename="+name)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
 }
 
 func (a *API) importPreview(w http.ResponseWriter, r *http.Request) {
