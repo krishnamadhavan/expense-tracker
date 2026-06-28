@@ -6,7 +6,7 @@ BIN_DIR     := bin
 SERVER_BIN  := $(BIN_DIR)/expense-tracker
 ET_HTTP_ADDR ?= :8080
 
-.PHONY: all help tidy build test vet fmt check run clean ci
+.PHONY: all help tidy build test vet fmt check run clean ci migrate-up migrate-down db-up db-down
 
 all: check build
 
@@ -38,3 +38,21 @@ clean: ## Remove build artifacts
 	rm -rf $(BIN_DIR)
 
 ci: tidy check build ## Local approximation of CI pipeline
+
+
+# --- Database (PR03) ---
+# Requires: Docker for db-up; golang-migrate CLI for migrate-* (see scripts/migrate.sh)
+
+DATABASE_URL ?= postgres://expense:expense@localhost:5432/expense_tracker?sslmode=disable
+
+db-up: ## Start Postgres 16 via docker-compose.db.yaml
+	docker compose -f docker-compose.db.yaml up -d
+
+db-down: ## Stop Postgres compose stack
+	docker compose -f docker-compose.db.yaml down
+
+migrate-up: ## Apply all migrations (DATABASE_URL or ET_*_DATABASE_URL)
+	ET_DATABASE_URL="$(DATABASE_URL)" ./scripts/migrate.sh up
+
+migrate-down: ## Roll back one migration
+	ET_DATABASE_URL="$(DATABASE_URL)" ./scripts/migrate.sh down 1

@@ -1,0 +1,20 @@
+DROP TABLE IF EXISTS idempotency_keys;
+DROP TABLE IF EXISTS budgets;
+DROP TABLE IF EXISTS review_queue;
+DROP TABLE IF EXISTS moderation_events;
+DROP TABLE IF EXISTS categorization_events;
+DROP TABLE IF EXISTS merchant_norms;
+DROP TABLE IF EXISTS category_rules;
+DROP TABLE IF EXISTS transaction_tags;
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS import_batches;
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS income_streams;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS accounts;
+DROP TABLE IF EXISTS api_tokens;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS household_settings;
+DROP TABLE IF EXISTS households;
+-- Extensions left installed (safe shared objects).
