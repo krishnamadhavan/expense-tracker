@@ -16,6 +16,7 @@ import (
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/postgres"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/auth"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/catalog"
+	"github.com/krishnamadhavan/expense-tracker/internal/app/categorization"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/transactions"
 	"github.com/krishnamadhavan/expense-tracker/internal/config"
 	"github.com/krishnamadhavan/expense-tracker/internal/domain"
@@ -27,6 +28,7 @@ type API struct {
 	Auth     *auth.Service
 	Catalog  *catalog.Service
 	Txns     *transactions.Service
+	Cat      *categorization.Service
 	Idem     *postgres.IdempotencyRepo
 	AuthMW   *middleware.Authenticator
 	LoginRL  *middleware.LoginRateLimiter
@@ -51,6 +53,9 @@ func (a *API) Routes(r chi.Router) {
 			r.Get("/transactions", a.listTxns)
 			r.Get("/transactions/{id}", a.getTxn)
 			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/transactions/{id}/void", a.voidTxn)
+			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/transactions/{id}/moderation", a.moderateTxn)
+			r.Get("/review-queue", a.listReviewQueue)
+			r.Get("/categorization-quality", a.catQuality)
 		})
 	})
 }
@@ -296,6 +301,14 @@ func (a *API) createTxn(w http.ResponseWriter, r *http.Request) {
 		writeDomainErr(w, err)
 		return
 	}
+	if a.Cat != nil {
+		draft := domain.TransactionDraft{
+			HouseholdID: in.HouseholdID, AccountID: in.AccountID, TransferAccountID: in.TransferAccountID,
+			CategoryID: in.CategoryID, IncomeStreamID: in.IncomeStreamID, Direction: in.Direction,
+			Amount: in.Amount, Currency: in.Currency, TxnDate: in.TxnDate, PayeeRaw: in.PayeeRaw, Memo: in.Memo,
+		}
+		_ = a.Cat.AttachSuggestion(r.Context(), p.HouseholdID, txn, draft, transactions.UserSetCategory(in))
+	}
 	resp := map[string]any{"transaction": txnToJSON(txn)}
 	payload, _ := json.Marshal(resp)
 	if idemKey != "" && a.Idem != nil {
@@ -392,6 +405,74 @@ func writeDomainErr(w http.ResponseWriter, err error) {
 	default:
 		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
 	}
+}
+
+
+func (a *API) moderateTxn(w http.ResponseWriter, r *http.Request) {
+	if a.Cat == nil {
+		middleware.WriteError(w, http.StatusServiceUnavailable, "disabled", "categorization disabled")
+		return
+	}
+	p, _ := middleware.PrincipalFrom(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid id")
+		return
+	}
+	var body struct {
+		CategoryID string `json:"category_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.CategoryID == "" {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "category_id required")
+		return
+	}
+	catID, err := uuid.Parse(body.CategoryID)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid category_id")
+		return
+	}
+	res, err := a.Cat.Moderate(r.Context(), categorization.ModerateInput{
+		HouseholdID: p.HouseholdID, UserID: p.UserID, TransactionID: id, ToCategoryID: catID,
+	})
+	if err != nil {
+		writeDomainErr(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{
+		"transaction": txnToJSON(res.Transaction),
+		"learning":    res.Learning,
+	})
+}
+
+func (a *API) listReviewQueue(w http.ResponseWriter, r *http.Request) {
+	if a.Cat == nil {
+		middleware.WriteJSON(w, http.StatusOK, map[string]any{"items": []any{}})
+		return
+	}
+	p, _ := middleware.PrincipalFrom(r.Context())
+	items, err := a.Cat.ListOpenReviews(r.Context(), p.HouseholdID)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if items == nil {
+		items = []map[string]any{}
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (a *API) catQuality(w http.ResponseWriter, r *http.Request) {
+	if a.Cat == nil {
+		middleware.WriteJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	p, _ := middleware.PrincipalFrom(r.Context())
+	q, err := a.Cat.Quality(r.Context(), p.HouseholdID)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, q)
 }
 
 func requestHash(method, path string, body []byte) string {

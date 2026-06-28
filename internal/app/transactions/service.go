@@ -92,15 +92,22 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Transactio
 	if err != nil {
 		return domain.Transaction{}, err
 	}
+	userSet := in.CategoryID != nil && *in.CategoryID != uuid.Nil
 	catID := in.CategoryID
 	var conf *float64
-	payeeNorm := ""
-	if suggest.CategoryID != nil && (catID == nil || *catID == uuid.Nil) {
+	payeeNorm := suggest.PayeeNorm
+	locked := false
+	if userSet {
+		locked = true
+		one := 1.0
+		conf = &one
+	} else if suggest.CategoryID != nil && suggest.Confidence != nil && *suggest.Confidence >= 0.85 {
 		catID = suggest.CategoryID
 		conf = suggest.Confidence
-	}
-	if suggest.PayeeNorm != "" {
-		payeeNorm = suggest.PayeeNorm
+	} else if suggest.CategoryID != nil {
+		// still attach suggestion for audit but may be low confidence — attach only if auto threshold
+		// keep category nil for low confidence so review queue drives moderation
+		conf = suggest.Confidence
 	}
 
 	now := time.Now().UTC()
@@ -118,11 +125,18 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.Transactio
 		PayeeRaw:           in.PayeeRaw,
 		PayeeNorm:          payeeNorm,
 		Memo:               in.Memo,
+		CategoryLocked:     locked,
 		CategoryConfidence: conf,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
+	// Expose userSet via payee for callers — return txn; attach events in HTTP layer
 	return s.Txns.Create(ctx, txn)
+}
+
+// UserSetCategory reports whether create input included an explicit category.
+func UserSetCategory(in CreateInput) bool {
+	return in.CategoryID != nil && *in.CategoryID != uuid.Nil
 }
 
 func (s *Service) Get(ctx context.Context, householdID domain.HouseholdID, id domain.TransactionID) (domain.Transaction, error) {
