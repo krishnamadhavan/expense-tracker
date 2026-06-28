@@ -110,13 +110,15 @@ migrate:
   image: docker.io/migrate/migrate:v4.18.3
   # OpenShift may need image in allowed registry; override if needed
 
-# Bitnami PostgreSQL subchart (Minikube-friendly defaults)
+# Bitnami PostgreSQL subchart (Chart.yaml dependency; helm dependency update).
+# Disable for external DB: postgresql.enabled=false and set secret.databaseUrl.
 postgresql:
   enabled: true
   auth:
     username: expense
     password: expense
     database: expense_tracker
+    # postgresPassword: optional superuser password (Bitnami generates if empty)
   primary:
     persistence:
       enabled: true
@@ -124,8 +126,7 @@ postgresql:
     resources:
       requests:
         memory: 256Mi
-  # When postgresql.enabled=true and secret.databaseUrl is empty, the chart templates
-  # a URL pointing at the subchart service.
+  # OpenShift: you may need extra primary.podSecurityContext / volumePermissions overrides.
 
 # Probes
 livenessProbe:

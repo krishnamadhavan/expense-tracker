@@ -2,7 +2,7 @@ apiVersion: v2
 name: expense-tracker
 description: Personal finance tracker (Go API + embedded UI) for Kubernetes, Minikube, and OpenShift
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
 keywords:
   - finance
@@ -11,4 +11,8 @@ keywords:
 maintainers:
   - name: krishnamadhavan
 home: https://github.com/krishnamadhavan/expense-tracker
-# Use secret.databaseUrl for Postgres (bundled PG via separate Bitnami install — see README).
+dependencies:
+  - name: postgresql
+    version: "16.4.1"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
