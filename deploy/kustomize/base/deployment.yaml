@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: expense-tracker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: expense-tracker
+  template:
+    metadata:
+      labels:
+        app: expense-tracker
+    spec:
+      initContainers:
+        - name: migrate
+          image: migrate/migrate:v4.18.3
+          command: ["migrate", "-path=/migrations", "-database=$(ET_MIGRATE_DATABASE_URL)", "up"]
+          envFrom:
+            - secretRef:
+                name: expense-tracker-secrets
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+      containers:
+        - name: api
+          image: ghcr.io/krishnamadhavan/expense-tracker:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ET_HTTP_ADDR
+              value: ":8080"
+            - name: ET_COOKIE_SECURE
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: expense-tracker-secrets
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: migrations
+          configMap:
+            name: expense-tracker-migrations

@@ -1,4 +1,3 @@
-# Minimal API image (PR05). SPA embed is PR13.
 FROM golang:1.24-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
