@@ -16,6 +16,8 @@ import (
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/http/middleware"
 	v1 "github.com/krishnamadhavan/expense-tracker/internal/adapters/http/v1"
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/postgres"
+	"github.com/krishnamadhavan/expense-tracker/internal/adapters/rulesengine"
+	"github.com/krishnamadhavan/expense-tracker/internal/app/categorization"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/auth"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/catalog"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/transactions"
@@ -66,23 +68,32 @@ func main() {
 	idemRepo := &postgres.IdempotencyRepo{Pool: pool}
 
 	catalogSvc := &catalog.Service{Accounts: accRepo, Categories: catRepo, IncomeStreams: streamRepo}
+	catStore := &postgres.CategorizationStore{Pool: pool}
+	var categorizer ports.Categorizer = ports.NoopCategorizer{}
+	var catSvc *categorization.Service
+	if cfg.CategorizationOn {
+		eng := &rulesengine.Engine{Store: catStore}
+		categorizer = eng
+		catSvc = &categorization.Service{Pool: pool, Engine: eng, Cats: catRepo}
+	}
 	txnSvc := &transactions.Service{
 		Txns:        txnRepo,
 		Accounts:    accRepo,
 		Categories:  catRepo,
 		Streams:     streamRepo,
-		Categorizer: ports.NoopCategorizer{},
+		Categorizer: categorizer,
 	}
 
 	authMW := &middleware.Authenticator{Auth: authSvc, AuthDisabled: cfg.AuthDisabled}
 	api := &v1.API{
-		Cfg:     cfg,
-		Auth:    authSvc,
-		Catalog: catalogSvc,
-		Txns:    txnSvc,
-		Idem:    idemRepo,
-		AuthMW:  authMW,
-		LoginRL: middleware.NewLoginRateLimiter(cfg.LoginRateLimit, cfg.LoginRateWindow),
+		Cfg:      cfg,
+		Auth:     authSvc,
+		Catalog:  catalogSvc,
+		Txns:     txnSvc,
+		Cat:      catSvc,
+		Idem:     idemRepo,
+		AuthMW:   authMW,
+		LoginRL:  middleware.NewLoginRateLimiter(cfg.LoginRateLimit, cfg.LoginRateWindow),
 	}
 
 	r := chi.NewRouter()
