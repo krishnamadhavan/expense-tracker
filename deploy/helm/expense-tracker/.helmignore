@@ -1,4 +1,2 @@
 .DS_Store
-*.md
-!README.md
-.git
+files/.gitkeep
