@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Language version matches go.mod (go 1.24.0); setup-go resolves a compatible toolchain.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify module path
+        run: |
+          set -euo pipefail
+          mod=$(go list -m)
+          expected="github.com/krishnamadhavan/expense-tracker"
+          if [ "$mod" != "$expected" ]; then
+            echo "unexpected module path: $mod (want $expected)" >&2
+            exit 1
+          fi
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build -o /tmp/expense-tracker ./cmd/server
