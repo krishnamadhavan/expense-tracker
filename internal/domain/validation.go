@@ -63,9 +63,19 @@ func ValidateTransaction(d TransactionDraft) error {
 		if d.IncomeStreamID != nil && *d.IncomeStreamID != uuid.Nil {
 			return fmt.Errorf("%w: income_stream_id not allowed on transfers", ErrInvalidArgument)
 		}
-	default:
+	case DirectionIncome:
 		if d.TransferAccountID != nil && *d.TransferAccountID != uuid.Nil {
 			return fmt.Errorf("%w: transfer_account_id only valid when direction=transfer", ErrInvalidTransfer)
+		}
+		if d.IncomeStreamID == nil || *d.IncomeStreamID == uuid.Nil {
+			return fmt.Errorf("%w: income_stream_id is required for income", ErrInvalidArgument)
+		}
+	default: // expense
+		if d.TransferAccountID != nil && *d.TransferAccountID != uuid.Nil {
+			return fmt.Errorf("%w: transfer_account_id only valid when direction=transfer", ErrInvalidTransfer)
+		}
+		if d.IncomeStreamID != nil && *d.IncomeStreamID != uuid.Nil {
+			return fmt.Errorf("%w: income_stream_id only valid when direction=income", ErrInvalidArgument)
 		}
 	}
 

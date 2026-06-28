@@ -12,4 +12,6 @@ var (
 	ErrMissingAccount       = errors.New("account is required")
 	ErrMissingHousehold     = errors.New("household is required")
 	ErrVoidedTransaction    = errors.New("transaction is voided")
+	ErrNotFound             = errors.New("not found")
+	ErrCrossHousehold       = errors.New("resource belongs to another household")
 )
