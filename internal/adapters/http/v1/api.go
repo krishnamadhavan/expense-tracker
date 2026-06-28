@@ -14,13 +14,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/http/middleware"
+	"github.com/krishnamadhavan/expense-tracker/internal/adapters/importers"
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/postgres"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/auth"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/catalog"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/categorization"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/reports"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/budgets"
+	appimports "github.com/krishnamadhavan/expense-tracker/internal/app/imports"
 	"github.com/krishnamadhavan/expense-tracker/internal/domain"
+	"github.com/krishnamadhavan/expense-tracker/internal/ports"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/transactions"
 	"github.com/krishnamadhavan/expense-tracker/internal/config"
 )
@@ -34,6 +37,7 @@ type API struct {
 	Cat      *categorization.Service
 	Reports  *reports.Service
 	Budgets  *budgets.Service
+	Imports  *appimports.Service
 	Idem     *postgres.IdempotencyRepo
 	AuthMW   *middleware.Authenticator
 	LoginRL  *middleware.LoginRateLimiter
@@ -69,6 +73,11 @@ func (a *API) Routes(r chi.Router) {
 			r.Get("/exports/transactions.csv", a.exportCSV)
 			r.Get("/budgets", a.listBudgets)
 			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/budgets", a.createBudget)
+			r.Get("/imports/formats", a.importFormats)
+			r.Get("/imports/sample", a.importSample)
+			r.Get("/imports/sample/{format}", a.importSample)
+			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/imports/preview", a.importPreview)
+			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/imports/commit", a.importCommit)
 		})
 	})
 }
@@ -656,6 +665,160 @@ func (a *API) createBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	middleware.WriteJSON(w, http.StatusCreated, b)
+}
+
+
+func (a *API) importFormats(w http.ResponseWriter, r *http.Request) {
+	if a.Imports == nil {
+		middleware.WriteJSON(w, http.StatusOK, map[string]any{"formats": []string{}, "catalog": []any{}})
+		return
+	}
+	cat := importers.FormatCatalog()
+	// strip sample bodies from JSON (large); ids only in formats list
+	out := make([]map[string]any, 0, len(cat))
+	for _, f := range cat {
+		out = append(out, map[string]any{
+			"id": f.ID, "title": f.Title, "description": f.Description,
+			"required_columns": f.Required, "optional_columns": f.Optional, "notes": f.Notes,
+			"sample_url": "/api/v1/imports/sample/" + f.ID,
+		})
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{"formats": a.Imports.ListFormats(), "catalog": out})
+}
+
+func (a *API) importSample(w http.ResponseWriter, r *http.Request) {
+	format := chi.URLParam(r, "format")
+	if format == "" {
+		format = r.URL.Query().Get("format")
+	}
+	if format == "" {
+		format = "generic_csv"
+	}
+	name, body, ok := importers.SampleCSV(format)
+	if !ok {
+		middleware.WriteError(w, http.StatusNotFound, "not_found", "unknown format sample")
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename="+name)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
+}
+
+func (a *API) importPreview(w http.ResponseWriter, r *http.Request) {
+	if a.Imports == nil {
+		middleware.WriteError(w, http.StatusServiceUnavailable, "disabled", "imports unavailable")
+		return
+	}
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "multipart form required (file field)")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "file field required")
+		return
+	}
+	defer file.Close()
+	payload, err := io.ReadAll(file)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "read file")
+		return
+	}
+	format := r.FormValue("format")
+	if format == "" {
+		format = "auto"
+	}
+	res, err := a.Imports.Preview(r.Context(), format, hdr.Filename, payload)
+	if err != nil {
+		writeDomainErr(w, err)
+		return
+	}
+	// limit preview rows in JSON
+	preview := res.Rows
+	if len(preview) > 100 {
+		preview = preview[:100]
+	}
+	items := make([]map[string]any, 0, len(preview))
+	for _, row := range preview {
+		items = append(items, map[string]any{
+			"txn_date": row.TxnDate.Format("2006-01-02"),
+			"direction": row.Direction,
+			"amount": row.Amount.String(),
+			"payee_raw": row.PayeeRaw,
+			"external_ref": row.ExternalRef,
+		})
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{
+		"format": res.Format,
+		"source": res.Source,
+		"detected_format": a.Imports.AutoDetect(hdr.Filename, payload),
+		"total_rows": len(res.Rows),
+		"skipped": res.Skipped,
+		"warnings": res.Warnings,
+		"preview": items,
+	})
+}
+
+func (a *API) importCommit(w http.ResponseWriter, r *http.Request) {
+	if a.Imports == nil {
+		middleware.WriteError(w, http.StatusServiceUnavailable, "disabled", "imports unavailable")
+		return
+	}
+	p, _ := middleware.PrincipalFrom(r.Context())
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
+		// also accept JSON commit of pre-parsed rows — prefer multipart same as preview
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "multipart form required")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "file field required")
+		return
+	}
+	defer file.Close()
+	payload, err := io.ReadAll(file)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "read file")
+		return
+	}
+	format := r.FormValue("format")
+	if format == "" || format == "auto" {
+		format = a.Imports.AutoDetect(hdr.Filename, payload)
+	}
+	accountID, err := uuid.Parse(r.FormValue("account_id"))
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "account_id required")
+		return
+	}
+	var streamID *uuid.UUID
+	if s := r.FormValue("income_stream_id"); s != "" {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			middleware.WriteError(w, http.StatusBadRequest, "bad_request", "income_stream_id")
+			return
+		}
+		streamID = &id
+	}
+	parsed, err := a.Imports.Preview(r.Context(), format, hdr.Filename, payload)
+	if err != nil {
+		writeDomainErr(w, err)
+		return
+	}
+	res, err := a.Imports.Commit(r.Context(), ports.ImportCommitRequest{
+		HouseholdID: p.HouseholdID,
+		AccountID: accountID,
+		DefaultIncomeStreamID: streamID,
+		Source: format,
+		Filename: hdr.Filename,
+		Rows: parsed.Rows,
+		SkipDuplicates: r.FormValue("skip_duplicates") != "false",
+	})
+	if err != nil {
+		writeDomainErr(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, res)
 }
 
 func requestHash(method, path string, body []byte) string {

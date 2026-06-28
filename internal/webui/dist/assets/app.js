@@ -45,7 +45,7 @@ $("btn-login").onclick = async () => {
 };
 $("btn-logout").onclick = async () => { try { await api("/api/v1/auth/logout", { method: "POST", body: "{}" }); } catch {} refreshAuth(); };
 document.querySelectorAll("nav button[data-tab]").forEach((b) => b.onclick = () => {
-  ["txns", "review", "reports"].forEach((t) => { $("tab-" + t).hidden = t !== b.dataset.tab; });
+  ["txns", "review", "reports", "import"].forEach((t) => { $("tab-" + t).hidden = t !== b.dataset.tab; });
   if (b.dataset.tab === "review") loadReview();
 });
 async function loadTxns() {
@@ -95,3 +95,59 @@ $("btn-load-report").onclick = async () => {
 $("txn_date").value = new Date().toISOString().slice(0, 10);
 $("rep-month").value = new Date().toISOString().slice(0, 7);
 refreshAuth();
+
+// --- import ---
+async function setupImport() {
+  const data = await api("/api/v1/imports/formats");
+  const fmts = data.formats || [];
+  const catalog = data.catalog || [];
+  window.__importCatalog = catalog;
+  const sel = $("imp-format");
+  sel.innerHTML = '<option value="auto">auto-detect</option>';
+  fmts.forEach((f) => { const o = document.createElement("option"); o.value = f; o.textContent = f; sel.appendChild(o); });
+  $("imp-account").innerHTML = accounts.map((a) => `<option value="${a.ID || a.id}">${a.Name || a.name}</option>`).join("");
+  $("imp-stream").innerHTML = streams.map((s) => `<option value="${s.ID || s.id}">${s.Name || s.name} (income default)</option>`).join("");
+  const renderHelp = () => {
+    const id = $("imp-format").value === "auto" ? "generic_csv" : $("imp-format").value;
+    const f = (window.__importCatalog || []).find((c) => c.id === id) || (window.__importCatalog || [])[0];
+    $("imp-sample-link").href = "/api/v1/imports/sample/" + (f && f.id ? f.id : "generic_csv");
+    if (!f) { $("imp-help").textContent = ""; return; }
+    $("imp-help").innerHTML = "<strong>" + (f.title || f.id) + "</strong><br/>" + (f.description || "") +
+      "<br/><br/><strong>Required columns:</strong> " + (f.required_columns || []).join("; ") +
+      "<br/><strong>Optional:</strong> " + (f.optional_columns || []).join("; ") +
+      ((f.notes && f.notes.length) ? "<br/><strong>Notes:</strong> " + f.notes.join(" ") : "");
+  };
+  $("imp-format").onchange = renderHelp;
+  renderHelp();
+}
+const _refresh = refreshAuth;
+refreshAuth = async function() {
+  await _refresh();
+  if (!$("app").hidden) try { await setupImport(); } catch (e) {}
+};
+$("btn-preview").onclick = async () => {
+  const fd = new FormData();
+  const f = $("imp-file").files[0];
+  if (!f) return alert("choose file");
+  fd.append("file", f);
+  fd.append("format", $("imp-format").value);
+  const csrf = getCookie("csrf_token");
+  const r = await fetch("/api/v1/imports/preview", { method: "POST", body: fd, credentials: "include", headers: { "X-CSRF-Token": csrf } });
+  const data = await r.json();
+  $("imp-out").textContent = JSON.stringify(data, null, 2);
+};
+$("btn-commit").onclick = async () => {
+  const fd = new FormData();
+  const f = $("imp-file").files[0];
+  if (!f) return alert("choose file");
+  fd.append("file", f);
+  fd.append("format", $("imp-format").value);
+  fd.append("account_id", $("imp-account").value);
+  fd.append("income_stream_id", $("imp-stream").value);
+  fd.append("skip_duplicates", "true");
+  const csrf = getCookie("csrf_token");
+  const r = await fetch("/api/v1/imports/commit", { method: "POST", body: fd, credentials: "include", headers: { "X-CSRF-Token": csrf } });
+  const data = await r.json();
+  $("imp-out").textContent = JSON.stringify(data, null, 2);
+  loadTxns();
+};

@@ -39,6 +39,7 @@
       <button data-tab="txns">Transactions</button>
       <button data-tab="review">Review queue</button>
       <button data-tab="reports">Reports</button>
+      <button data-tab="import">Import</button>
       <button id="btn-logout">Logout</button>
     </nav>
 
@@ -58,6 +59,21 @@
     <section id="tab-review" hidden>
       <h2>Review queue</h2>
       <div id="review-list" class="muted">Loading…</div>
+    </section>
+
+    <section id="tab-import" hidden>
+      <h2>Import bank / card statement</h2>
+      <p class="muted">CSV from HDFC, ICICI, SBI, Axis (bank or credit card) or generic debit/credit columns. Prefer import over single entry.</p>
+      <div id="imp-help" class="muted" style="margin:.5rem 0;padding:.75rem;background:#f1f5f9;border-radius:6px;font-size:.85rem"></div>
+      <p><a id="imp-sample-link" href="/api/v1/imports/sample/generic_csv" download>Download sample CSV</a>
+         <span class="muted"> — use as a template or compare columns to your bank export.</span></p>
+      <select id="imp-account"></select>
+      <select id="imp-stream"></select>
+      <select id="imp-format"><option value="auto">auto-detect</option></select>
+      <input id="imp-file" type="file" accept=".csv,text/csv" />
+      <button id="btn-preview">Preview</button>
+      <button id="btn-commit">Import all</button>
+      <pre id="imp-out" class="muted"></pre>
     </section>
 
     <section id="tab-reports" hidden>
