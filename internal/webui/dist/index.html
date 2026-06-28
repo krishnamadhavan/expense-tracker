@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Expense Tracker</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #0f172a; background: #f8fafc; }
+    body { margin: 0; max-width: 960px; margin-inline: auto; padding: 1rem; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    nav button { margin-right: .5rem; }
+    section { background: #fff; border-radius: 8px; padding: 1rem; margin-top: 1rem; box-shadow: 0 1px 3px #0001; }
+    input, select, button { padding: .4rem .6rem; margin: .2rem 0; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: .35rem; border-bottom: 1px solid #e2e8f0; }
+    .err { color: #b91c1c; }
+    .muted { color: #64748b; font-size: .85rem; }
+    #chart { display: flex; align-items: flex-end; gap: 4px; height: 120px; margin-top: .5rem; }
+    #chart .bar { flex: 1; background: #3b82f6; min-width: 4px; border-radius: 2px 2px 0 0; }
+    #chart .bar.exp { background: #ef4444; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Expense Tracker</h1>
+    <div id="auth-status" class="muted">Not signed in</div>
+  </header>
+
+  <section id="login-panel">
+    <h2>Login</h2>
+    <input id="email" type="email" placeholder="email" value="admin@localhost" />
+    <input id="password" type="password" placeholder="password" value="changeme" />
+    <button id="btn-login">Sign in</button>
+    <p class="err" id="login-err"></p>
+  </section>
+
+  <div id="app" hidden>
+    <nav>
+      <button data-tab="txns">Transactions</button>
+      <button data-tab="review">Review queue</button>
+      <button data-tab="reports">Reports</button>
+      <button id="btn-logout">Logout</button>
+    </nav>
+
+    <section id="tab-txns">
+      <h2>New transaction</h2>
+      <select id="account"></select>
+      <select id="direction"><option value="expense">expense</option><option value="income">income</option><option value="transfer">transfer</option></select>
+      <input id="amount" placeholder="amount" value="100.00" />
+      <input id="payee" placeholder="payee" />
+      <input id="txn_date" type="date" />
+      <select id="income_stream" hidden></select>
+      <button id="btn-create">Create</button>
+      <h2>Recent</h2>
+      <table><thead><tr><th>Date</th><th>Dir</th><th>Amount</th><th>Payee</th><th></th></tr></thead><tbody id="txn-body"></tbody></table>
+    </section>
+
+    <section id="tab-review" hidden>
+      <h2>Review queue</h2>
+      <div id="review-list" class="muted">Loading…</div>
+    </section>
+
+    <section id="tab-reports" hidden>
+      <h2>Reports</h2>
+      <label>Month <input id="rep-month" type="month" /></label>
+      <button id="btn-load-report">Load</button>
+      <pre id="summary" class="muted"></pre>
+      <div id="chart"></div>
+      <a id="csv-link" href="#">Download CSV</a>
+    </section>
+  </div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

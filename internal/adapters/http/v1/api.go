@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -17,9 +18,11 @@ import (
 	"github.com/krishnamadhavan/expense-tracker/internal/app/auth"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/catalog"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/categorization"
+	"github.com/krishnamadhavan/expense-tracker/internal/app/reports"
+	"github.com/krishnamadhavan/expense-tracker/internal/app/budgets"
+	"github.com/krishnamadhavan/expense-tracker/internal/domain"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/transactions"
 	"github.com/krishnamadhavan/expense-tracker/internal/config"
-	"github.com/krishnamadhavan/expense-tracker/internal/domain"
 )
 
 // API wires v1 routes.
@@ -29,6 +32,8 @@ type API struct {
 	Catalog  *catalog.Service
 	Txns     *transactions.Service
 	Cat      *categorization.Service
+	Reports  *reports.Service
+	Budgets  *budgets.Service
 	Idem     *postgres.IdempotencyRepo
 	AuthMW   *middleware.Authenticator
 	LoginRL  *middleware.LoginRateLimiter
@@ -56,6 +61,14 @@ func (a *API) Routes(r chi.Router) {
 			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/transactions/{id}/moderation", a.moderateTxn)
 			r.Get("/review-queue", a.listReviewQueue)
 			r.Get("/categorization-quality", a.catQuality)
+			r.Get("/reports/summary", a.reportSummary)
+			r.Get("/reports/by-category", a.reportByCategory)
+			r.Get("/reports/by-account", a.reportByAccount)
+			r.Get("/reports/by-income-stream", a.reportByStream)
+			r.Get("/reports/timeseries", a.reportTimeseries)
+			r.Get("/exports/transactions.csv", a.exportCSV)
+			r.Get("/budgets", a.listBudgets)
+			r.With(middleware.RequireCSRF, middleware.RequireWrite).Post("/budgets", a.createBudget)
 		})
 	})
 }
@@ -473,6 +486,176 @@ func (a *API) catQuality(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	middleware.WriteJSON(w, http.StatusOK, q)
+}
+
+
+func (a *API) parseReportRange(r *http.Request) (start, end time.Time, label string, err error) {
+	q := r.URL.Query()
+	loc := domain.MustLoadLocation(domain.DefaultTimezone)
+	if fy := q.Get("fy"); fy != "" {
+		var y int
+		_, err = fmt.Sscanf(fy, "%d", &y)
+		if err != nil {
+			return
+		}
+		start, end = domain.FinancialYearBounds(y, domain.DefaultFYStartMonth, loc)
+		label = domain.FYLabel(y, domain.DefaultFYStartMonth)
+		return
+	}
+	if m := q.Get("month"); m != "" {
+		start, err = time.ParseInLocation("2006-01", m, loc)
+		if err != nil {
+			return
+		}
+		end = start.AddDate(0, 1, 0)
+		label = m
+		return
+	}
+	// default current month
+	now := time.Now().In(loc)
+	start, end = domain.MonthBounds(now, loc)
+	label = start.Format("2006-01")
+	return
+}
+
+func (a *API) reportSummary(w http.ResponseWriter, r *http.Request) {
+	if a.Reports == nil {
+		middleware.WriteError(w, http.StatusServiceUnavailable, "disabled", "reports unavailable")
+		return
+	}
+	p, _ := middleware.PrincipalFrom(r.Context())
+	start, end, label, err := a.parseReportRange(r)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid range")
+		return
+	}
+	s, err := a.Reports.RangeSummary(r.Context(), p.HouseholdID, start, end, label)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, s)
+}
+
+func (a *API) reportByCategory(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFrom(r.Context())
+	start, end, _, err := a.parseReportRange(r)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid range")
+		return
+	}
+	dir := domain.DirectionExpense
+	if r.URL.Query().Get("direction") == "income" {
+		dir = domain.DirectionIncome
+	}
+	rows, err := a.Reports.ByCategory(r.Context(), p.HouseholdID, start, end, dir)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{"items": rows})
+}
+
+func (a *API) reportByAccount(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFrom(r.Context())
+	start, end, _, err := a.parseReportRange(r)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid range")
+		return
+	}
+	rows, err := a.Reports.ByAccount(r.Context(), p.HouseholdID, start, end)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{"items": rows})
+}
+
+func (a *API) reportByStream(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFrom(r.Context())
+	start, end, _, err := a.parseReportRange(r)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid range")
+		return
+	}
+	rows, err := a.Reports.ByIncomeStream(r.Context(), p.HouseholdID, start, end)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{"items": rows})
+}
+
+func (a *API) reportTimeseries(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFrom(r.Context())
+	start, end, _, err := a.parseReportRange(r)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid range")
+		return
+	}
+	pts, err := a.Reports.DailyTimeseries(r.Context(), p.HouseholdID, start, end)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{"points": pts})
+}
+
+func (a *API) exportCSV(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFrom(r.Context())
+	start, end, _, err := a.parseReportRange(r)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid range")
+		return
+	}
+	b, err := a.Reports.ExportCSV(r.Context(), p.HouseholdID, start, end)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=transactions.csv")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(b)
+}
+
+func (a *API) listBudgets(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFrom(r.Context())
+	items, err := a.Budgets.List(r.Context(), p.HouseholdID)
+	if err != nil {
+		middleware.WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if items == nil {
+		items = []budgets.BudgetDTO{}
+	}
+	middleware.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (a *API) createBudget(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFrom(r.Context())
+	var body struct {
+		CategoryID  string `json:"category_id"`
+		PeriodType  string `json:"period_type"`
+		PeriodStart string `json:"period_start"`
+		AmountLimit string `json:"amount_limit"`
+		Currency    string `json:"currency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "invalid JSON")
+		return
+	}
+	cid, err := uuid.Parse(body.CategoryID)
+	if err != nil {
+		middleware.WriteError(w, http.StatusBadRequest, "bad_request", "category_id")
+		return
+	}
+	b, err := a.Budgets.Create(r.Context(), p.HouseholdID, cid, body.PeriodType, body.PeriodStart, body.AmountLimit, body.Currency)
+	if err != nil {
+		writeDomainErr(w, err)
+		return
+	}
+	middleware.WriteJSON(w, http.StatusCreated, b)
 }
 
 func requestHash(method, path string, body []byte) string {

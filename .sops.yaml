@@ -1,0 +1,5 @@
+# Example SOPS config — create age key and encrypt secrets.enc.yaml for Profile C.
+creation_rules:
+  - path_regex: deploy/.*secrets.*\.yaml$
+    age: >-
+      REPLACE_WITH_AGE_PUBLIC_KEY

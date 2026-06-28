@@ -18,10 +18,15 @@ import (
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/postgres"
 	"github.com/krishnamadhavan/expense-tracker/internal/adapters/rulesengine"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/categorization"
+	"github.com/krishnamadhavan/expense-tracker/internal/app/reports"
+	"github.com/krishnamadhavan/expense-tracker/internal/app/budgets"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/auth"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/catalog"
 	"github.com/krishnamadhavan/expense-tracker/internal/app/transactions"
 	"github.com/krishnamadhavan/expense-tracker/internal/config"
+	"github.com/krishnamadhavan/expense-tracker/internal/webui"
+	"io/fs"
+	"strings"
 	"github.com/krishnamadhavan/expense-tracker/internal/ports"
 )
 
@@ -90,7 +95,9 @@ func main() {
 		Auth:     authSvc,
 		Catalog:  catalogSvc,
 		Txns:     txnSvc,
-		Cat:      catSvc,
+		Cat: catSvc,
+		Reports: &reports.Service{Pool: pool},
+		Budgets: &budgets.Service{Pool: pool},
 		Idem:     idemRepo,
 		AuthMW:   authMW,
 		LoginRL:  middleware.NewLoginRateLimiter(cfg.LoginRateLimit, cfg.LoginRateWindow),
@@ -100,6 +107,14 @@ func main() {
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			next.ServeHTTP(w, r)
+		})
+	})
 	if len(cfg.CORSOrigins) > 0 {
 		r.Use(cors.Handler(cors.Options{
 			AllowedOrigins:   cfg.CORSOrigins,
@@ -123,6 +138,33 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(authMW.Authenticate)
 		api.Routes(r)
+	})
+
+	// Embedded SPA (PR13): /assets/* and SPA fallback for non-API GETs
+	static, err := fs.Sub(webui.Dist, "dist")
+	if err != nil {
+		slog.Error("webui embed", "err", err)
+		os.Exit(1)
+	}
+	fileServer := http.FileServer(http.FS(static))
+	r.Handle("/assets/*", http.StripPrefix("/", fileServer))
+	r.Get("/*", func(w http.ResponseWriter, req *http.Request) {
+		if strings.HasPrefix(req.URL.Path, "/api") || req.URL.Path == "/healthz" || req.URL.Path == "/readyz" {
+			http.NotFound(w, req)
+			return
+		}
+		if req.URL.Path != "/" && !strings.Contains(req.URL.Path[1:], ".") {
+			// SPA client route fallback
+			b, err := fs.ReadFile(static, "index.html")
+			if err != nil {
+				http.NotFound(w, req)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(b)
+			return
+		}
+		fileServer.ServeHTTP(w, req)
 	})
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: r, ReadHeaderTimeout: 5 * time.Second}

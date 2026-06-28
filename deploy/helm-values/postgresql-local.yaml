@@ -1,0 +1,7 @@
+auth:
+  username: expense
+  password: expense
+  database: expense_tracker
+primary:
+  persistence:
+    size: 2Gi
