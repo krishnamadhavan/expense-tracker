@@ -37,6 +37,15 @@ Environment variables used so far:
 | -------------- | ------- | ------------------ |
 | `ET_HTTP_ADDR` | `:8080` | HTTP listen address |
 
+## Kubernetes / Minikube / OpenShift (Helm)
+
+Chart: [`deploy/helm/expense-tracker`](deploy/helm/expense-tracker/README.md)
+
+```bash
+cd deploy/helm/expense-tracker && helm dependency update
+helm upgrade --install expense-tracker . -n expense-tracker --create-namespace -f values-minikube.yaml
+```
+
 ## Run API (PR05)
 
 ```bash

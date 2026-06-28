@@ -1,0 +1,19 @@
+# Example overrides for Minikube + ingress-nginx
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: expense.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+secret:
+  bootstrapPassword: "changeme"
+  # databaseUrl left empty — derived from postgresql subchart
+
+postgresql:
+  enabled: true
+
+config:
+  cookieSecure: "false"  # set true if you terminate TLS on ingress

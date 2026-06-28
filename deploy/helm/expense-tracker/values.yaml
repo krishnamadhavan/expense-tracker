@@ -1,0 +1,147 @@
+# Default values — suitable for Minikube / single-node clusters.
+# OpenShift: set openshift.enabled=true (uses Route instead of Ingress when route.enabled).
+# External DB: set postgresql.enabled=false and database.url (or existingSecret).
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/krishnamadhavan/expense-tracker
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels:
+  app.kubernetes.io/name: expense-tracker
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+  # OpenShift assigns arbitrary UIDs; leave runAsUser unset for SCC compatibility.
+  # runAsUser: 65532
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# Kubernetes Ingress (Minikube ingress-nginx, cloud LB ingress, etc.)
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: expense.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: expense-tracker-tls
+  #    hosts:
+  #      - expense.local
+
+# OpenShift Route (used when openshift.enabled=true and route.enabled=true)
+openshift:
+  enabled: false
+
+route:
+  enabled: true
+  host: ""  # empty = default router hostname
+  wildcardPolicy: None
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Application configuration (ET_* env vars)
+config:
+  httpAddr: ":8080"
+  cookieSecure: "true"
+  cookieSameSite: Lax
+  corsOrigins: ""
+  categorizationEnabled: "true"
+  bootstrapEmail: admin@localhost
+  # Prefer bootstrapPassword via secret (below). Empty = no bootstrap user.
+  timezone: Asia/Kolkata
+
+# Secrets — DO NOT commit real passwords to git. Override via --set or -f secrets.yaml
+secret:
+  # Full Postgres URL for the app role, e.g.
+  # postgres://expense:expense@expense-tracker-postgresql:5432/expense_tracker?sslmode=disable
+  databaseUrl: ""
+  # Optional separate URL for migrate initContainer (defaults to databaseUrl)
+  migrateDatabaseUrl: ""
+  bootstrapPassword: "changeme"
+  # If set, use this existing Secret instead of creating one (keys: database-url, bootstrap-password, optional migrate-database-url)
+  existingSecret: ""
+
+# Run golang-migrate as initContainer from chart-packaged SQL files
+migrate:
+  enabled: true
+  image: docker.io/migrate/migrate:v4.18.3
+  # OpenShift may need image in allowed registry; override if needed
+
+# Bitnami PostgreSQL subchart (Minikube-friendly defaults)
+postgresql:
+  enabled: true
+  auth:
+    username: expense
+    password: expense
+    database: expense_tracker
+  primary:
+    persistence:
+      enabled: true
+      size: 2Gi
+    resources:
+      requests:
+        memory: 256Mi
+  # When postgresql.enabled=true and secret.databaseUrl is empty, the chart templates
+  # a URL pointing at the subchart service.
+
+# Probes
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# NetworkPolicy (optional, default off for Minikube simplicity)
+networkPolicy:
+  enabled: false

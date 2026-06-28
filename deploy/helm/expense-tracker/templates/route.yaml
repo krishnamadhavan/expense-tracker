@@ -1,0 +1,24 @@
+{{- if and .Values.openshift.enabled .Values.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "expense-tracker.fullname" . }}
+  labels:
+    {{- include "expense-tracker.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.route.host }}
+  host: {{ .Values.route.host | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ include "expense-tracker.fullname" . }}
+    weight: 100
+  port:
+    targetPort: http
+  wildcardPolicy: {{ .Values.route.wildcardPolicy | default "None" }}
+  {{- if .Values.route.tls }}
+  tls:
+    termination: {{ .Values.route.tls.termination | default "edge" }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy | default "Redirect" }}
+  {{- end }}
+{{- end }}

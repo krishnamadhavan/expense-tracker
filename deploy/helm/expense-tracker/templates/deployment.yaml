@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "expense-tracker.fullname" . }}
+  labels:
+    {{- include "expense-tracker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "expense-tracker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "expense-tracker.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "expense-tracker.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.migrate.enabled }}
+      initContainers:
+        - name: migrate
+          image: {{ .Values.migrate.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-path=/migrations"
+            - "-database=$(ET_MIGRATE_DATABASE_URL)"
+            - "up"
+          env:
+            - name: ET_MIGRATE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "expense-tracker.secretName" . }}
+                  key: migrate-database-url
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: api
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ET_HTTP_ADDR
+              value: {{ .Values.config.httpAddr | quote }}
+            - name: ET_COOKIE_SECURE
+              value: {{ .Values.config.cookieSecure | quote }}
+            - name: ET_COOKIE_SAMESITE
+              value: {{ .Values.config.cookieSameSite | quote }}
+            - name: ET_CORS_ORIGINS
+              value: {{ .Values.config.corsOrigins | quote }}
+            - name: ET_CATEGORIZATION_ENABLED
+              value: {{ .Values.config.categorizationEnabled | quote }}
+            - name: ET_BOOTSTRAP_EMAIL
+              value: {{ .Values.config.bootstrapEmail | quote }}
+            - name: ET_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "expense-tracker.secretName" . }}
+                  key: database-url
+            - name: ET_BOOTSTRAP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "expense-tracker.secretName" . }}
+                  key: bootstrap-password
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.migrate.enabled }}
+        - name: migrations
+          configMap:
+            name: {{ include "expense-tracker.fullname" . }}-migrations
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

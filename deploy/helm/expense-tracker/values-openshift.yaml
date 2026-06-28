@@ -1,0 +1,32 @@
+# Example overrides for OpenShift
+openshift:
+  enabled: true
+
+ingress:
+  enabled: false
+
+route:
+  enabled: true
+  # host: expense-tracker.apps.example.com
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# OpenShift restricted SCC — do not force runAsUser
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+
+secret:
+  bootstrapPassword: "changeme"
+
+postgresql:
+  enabled: true
+  # On OpenShift you may need to adjust Bitnami security contexts; or use
+  # an external OpenShift PostgreSQL operator and set secret.databaseUrl.
+
+config:
+  cookieSecure: "true"

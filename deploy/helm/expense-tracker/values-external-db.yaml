@@ -1,0 +1,7 @@
+# Bring your own Postgres (cloud RDS, Crunchy, CNPG, etc.)
+postgresql:
+  enabled: false
+
+secret:
+  databaseUrl: "postgres://expense:expense@my-postgres:5432/expense_tracker?sslmode=require"
+  bootstrapPassword: "changeme"

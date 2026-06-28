@@ -1,0 +1,19 @@
+apiVersion: v2
+name: expense-tracker
+description: Personal finance tracker (Go API + embedded UI) for Kubernetes, Minikube, and OpenShift
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - finance
+  - expenses
+  - golang
+maintainers:
+  - name: krishnamadhavan
+home: https://github.com/krishnamadhavan/expense-tracker
+# Optional Bitnami PostgreSQL — enable with postgresql.enabled=true
+dependencies:
+  - name: postgresql
+    version: "15.5.32"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
