@@ -11,9 +11,4 @@ keywords:
 maintainers:
   - name: krishnamadhavan
 home: https://github.com/krishnamadhavan/expense-tracker
-# Optional Bitnami PostgreSQL — enable with postgresql.enabled=true
-dependencies:
-  - name: postgresql
-    version: "15.5.32"
-    repository: https://charts.bitnami.com/bitnami
-    condition: postgresql.enabled
+# Use secret.databaseUrl for Postgres (bundled PG via separate Bitnami install — see README).

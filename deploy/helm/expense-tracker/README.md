@@ -17,11 +17,16 @@ minikube image load ghcr.io/krishnamadhavan/expense-tracker:latest
 
 ```bash
 cd deploy/helm/expense-tracker
-helm dependency update   # pulls Bitnami postgresql when enabled
+# Postgres (example Bitnami, separate release)
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm upgrade --install et-pg bitnami/postgresql -n expense-tracker --create-namespace \
+  --set auth.username=expense --set auth.password=expense --set auth.database=expense_tracker
 
+# App chart (points at et-pg-postgresql service when using defaults in values)
 helm upgrade --install expense-tracker . \
-  --namespace expense-tracker --create-namespace \
-  -f values-minikube.yaml
+  --namespace expense-tracker \
+  -f values-minikube.yaml \
+  --set secret.databaseUrl='postgres://expense:expense@et-pg-postgresql:5432/expense_tracker?sslmode=disable'
 
 minikube addons enable ingress
 # /etc/hosts: <minikube ip> expense.local
